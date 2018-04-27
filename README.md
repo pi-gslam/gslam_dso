@@ -16,7 +16,7 @@ git clone https://github.com/zdzhaoyong/GSLAM --branch 2.4.2
 ```
 mkdir build;
 cd build;
-cmake ..;
+cmake .. -DCMAKE_BUILD_TYPE=Release;
 make;
 sudo make install
 ```
