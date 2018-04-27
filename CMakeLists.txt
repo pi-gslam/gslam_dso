@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 
-include(PICMake)
+include(cmake/PICMake.cmake)
 
 pi_add_target(gslam_dso SHARED src REQUIRED GSLAM Eigen3 OpenGL GLEW GLUT DEPENDENCY boost_system boost_thread csparse cxsparse)
 
