@@ -9,7 +9,7 @@ This code is the [DSO](https://github.com/JakobEngel/dso) plugin implementation 
 ## 2. Build and Install
 ### 2.1. Build and Install GSLAM
 
-git clone https://github.com/zdzhaoyong/GSLAM --branch 2.4.2
+git clone https://github.com/zdzhaoyong/GSLAM
 
 ### 2.2. Build and Install GSLAM-DSO
 
@@ -24,5 +24,5 @@ sudo make install
 ## 3. Run DSO with gslam
 
 ```
-gslam conf=Default.cfg Dataset=your_dataset 
+gslam qviz dso play -dataset /Dataset/TUM/RGBD/rgbd_dataset_freiburg3_structure_texture_far/.tumrgbd -autostart
 ```
