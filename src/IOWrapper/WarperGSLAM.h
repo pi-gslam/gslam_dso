@@ -6,8 +6,8 @@
 
 struct GraphConnection
 {
-    SPtr<dso::IOWrap::KeyFrameDisplay> from;
-    SPtr<dso::IOWrap::KeyFrameDisplay> to;
+    std::shared_ptr<dso::IOWrap::KeyFrameDisplay> from;
+    std::shared_ptr<dso::IOWrap::KeyFrameDisplay> to;
     int fwdMarg, bwdMarg, fwdAct, bwdAct;
 };
 
@@ -32,16 +32,16 @@ public:
     void drawConstraints();
 
 
-    GSLAM::Mutex      mutexImage;
+    std::mutex      mutexImage;
     int            w,h;
     bool           videoChanged,kfImgChanged,resImgChanged;
     GSLAM::GImage  video,KFImg,ResImg;
 
 
-    GSLAM::Mutex      model3DMutex;
-    SPtr<dso::IOWrap::KeyFrameDisplay> currentCam;
-    std::vector<SPtr<dso::IOWrap::KeyFrameDisplay> > keyframes;
-    std::map<int,SPtr<dso::IOWrap::KeyFrameDisplay> > keyframesByKFID;
+    std::mutex      model3DMutex;
+    std::shared_ptr<dso::IOWrap::KeyFrameDisplay> currentCam;
+    std::vector<std::shared_ptr<dso::IOWrap::KeyFrameDisplay> > keyframes;
+    std::map<int,std::shared_ptr<dso::IOWrap::KeyFrameDisplay> > keyframesByKFID;
     std::vector<GraphConnection> connections;
     std::vector<dso::Vec3f> allFramePoses;
 
@@ -60,6 +60,9 @@ public:
     int settings_sparsity;
 
     dso::SE3   lastPose;
+
+    GSLAM::Publisher pubUpdateGL;
+    GSLAM::Subscriber subDraw;
 };
 
 #endif // WARPERGSLAM_H

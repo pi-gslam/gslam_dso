@@ -1,6 +1,5 @@
 #include "DSO.h"
 
-#include <GSLAM/core/VecParament.h>
 #include <GSLAM/core/Undistorter.h>
 
 #include "FullSystem/FullSystem.h"
@@ -18,22 +17,21 @@ using namespace dso;
 namespace GSLAM
 {
 
-pi::SE3d fromSophus(const dso::SE3& se3)
+SE3d fromSophus(const dso::SE3& se3)
 {
-    pi::SE3d result;
+    SE3d result;
     Eigen::Vector3d trans=se3.translation();
-    result.get_translation()=*(pi::Point3d*)&trans;
+    result.get_translation()=*(Point3d*)&trans;
 
     Eigen::Matrix3d rot =se3.inverse().rotationMatrix();
-    result.get_rotation().fromMatrixUnsafe(rot);
+    result.get_rotation()=SO3d(rot);
 
     return result;
 }
 
-dso::SE3 ToSophus(pi::SE3<double> se3_zy)
+dso::SE3 ToSophus(SE3d se3_zy)
 {
-    Eigen::Matrix3d eigen_rot;
-    se3_zy.get_rotation().inv().getMatrixUnsafe(eigen_rot);
+    Eigen::Matrix3d eigen_rot=se3_zy.get_rotation().inverse().getMatrix();
     Eigen::Vector3d eigen_trans=*((Eigen::Vector3d*)&se3_zy.get_translation());
 
     return Sophus::SE3(eigen_rot,eigen_trans);
@@ -93,10 +91,10 @@ void settingsDefault(int preset)
 
 
 
-DSO::DSO()
+DSO::DSO(Svar config)
     :shouldUndistort(false)
 {
-    settingsDefault(svar.GetInt("DSO.Preset",3));
+    settingsDefault(config.GetInt("DSO.Preset",3));
 
     setting_photometricCalibration = 0;
     setting_affineOptModeA = 0; //-1: fix. >=0: optimize (with prior, if > 0).
@@ -106,8 +104,11 @@ DSO::DSO()
 //    string calib=svar.GetString("DSO.CalibFileName","");
 //    string gammaCalib=svar.GetString("DSO.GammaFile","");
 //    string vignette=svar.GetString("DSO.VigFile","");
-//    reader=SPtr<ImageFolderReader>(new ImageFolderReader(source,calib, gammaCalib, vignette));
+//    reader=std::shared_ptrImageFolderReader>(new ImageFolderReader(source,calib, gammaCalib, vignette));
 //    reader->setGlobalCalibration();
+    subDataset=messenger.subscribe("dataset/frame",5,[this](FramePtr fr){this->track(fr);});
+    pubFrame=messenger.advertise<FramePtr>("dso/curframe");
+    pubMap=messenger.advertise<MapPtr>("dso/map");
 }
 
 DSO::~DSO()
@@ -138,7 +139,7 @@ bool DSO::track(FramePtr& frame)
         if(camera.isValid()&&camera.info()!=frame->getCamera().info()) shouldUndistort=true;
         else camera=frame->getCamera();
 
-        VecParament<double> para=camera.getParameters();
+        vector<double> para=camera.getParameters();
         Eigen::Matrix3f K;
 
 
@@ -153,9 +154,11 @@ bool DSO::track(FramePtr& frame)
 
         setGlobalCalib(camera.width(),camera.height(),K);
 
-        system=SPtr<dso::FullSystem>(new dso::FullSystem());
-        warper=SPtr<WarperGSLAM>(new WarperGSLAM(camera.width(),camera.height()));
+        system=std::shared_ptr<dso::FullSystem>(new dso::FullSystem());
+        warper=std::shared_ptr<WarperGSLAM>(new WarperGSLAM(camera.width(),camera.height()));
 
+        if(system.get())
+            system->outputWrapper=warper.get();
         if("VideoFrameMonoWithExposure"==frame->type())
         {
             GSLAM::GImage G=frame->getImage(1);
@@ -173,7 +176,7 @@ bool DSO::track(FramePtr& frame)
 
         MinimalImage<uchar> minimal(gimg.cols,gimg.rows,gimg.data);
 
-        SPtr<dso::ImageAndExposure> img(reader->undistort->undistort<unsigned char>(&minimal,1));
+        std::shared_ptr<dso::ImageAndExposure> img(reader->undistort->undistort<unsigned char>(&minimal,1));
 
         system->addActiveFrame(img.get(),frame->id());
     }
@@ -187,14 +190,14 @@ bool DSO::track(FramePtr& frame)
 
         if(gimg.type()==GSLAM::GImageType<uchar,3>::Type)
         {
-            GSLAM::GImage tmp(gimg.cols,gimg.rows,GSLAM::GImageType<uchar,1>::Type);
+            GSLAM::GImage tmp(gimg.rows,gimg.cols,GSLAM::GImageType<uchar,1>::Type);
             for(int i=0,iend=gimg.total();i<iend;i++)
                 tmp.data[i]=gimg.data[i*3];
             gimg=tmp;
         }
         else if(gimg.type()==GSLAM::GImageType<uchar,4>::Type)
         {
-            GSLAM::GImage tmp(gimg.cols,gimg.rows,GSLAM::GImageType<uchar,1>::Type);
+            GSLAM::GImage tmp(gimg.rows,gimg.cols,GSLAM::GImageType<uchar,1>::Type);
             for(int i=0,iend=gimg.total();i<iend;i++)
                 tmp.data[i]=gimg.data[i*4];
             gimg=tmp;
@@ -208,7 +211,7 @@ bool DSO::track(FramePtr& frame)
             gimg=tmp;
         }
 
-        SPtr<dso::ImageAndExposure> img(new dso::ImageAndExposure(gimg.cols,gimg.rows,frame->_timestamp));
+        std::shared_ptr<dso::ImageAndExposure> img(new dso::ImageAndExposure(gimg.cols,gimg.rows,frame->_timestamp));
         img->exposure_time=exposure_time;
 
 
@@ -244,14 +247,13 @@ bool DSO::track(FramePtr& frame)
     }
 
     frame->setPose(fromSophus(warper->lastPose));
+    pubFrame.publish(frame);
     return true;
 
 }
 
 void DSO::draw()
 {
-    if(system.get())
-        system->outputWrapper=warper.get();
 
     if(warper)
         warper->draw();
@@ -262,8 +264,24 @@ void DSO::call(const std::string& command,void* arg)
 
 }
 
+int rundso(Svar config){
+    config.arg("dso.preset",3,"The dso preset");
 
+    if(config.get("help",false))
+    {
+        auto pubMap=messenger.advertise<MapPtr>("dso/map");
+        auto pubFr =messenger.advertise<FramePtr>("dso/curframe");
+        auto subDataset=messenger.subscribe("dataset/frame",1,[](FramePtr fr){
+                LOG(INFO)<<"Fake received frame"<<fr->id();
+        });
+        config["__usage__"]=messenger.introduction();
+        return config.help();
+    }
+
+    DSO dso(config);
+    return Messenger::exec();
 }
 
+GSLAM_REGISTER_APPLICATION(dso,rundso);
 
-USE_GSLAM_PLUGIN(GSLAM::DSO);
+}

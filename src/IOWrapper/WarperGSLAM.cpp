@@ -60,7 +60,14 @@ WarperGSLAM::WarperGSLAM(int width,int height)
     settings_showFullTrajectory=true;
     settings_showAllConstraints=true;
     setting_render_display3D=true;
-    currentCam=SPtr<KeyFrameDisplay>(new KeyFrameDisplay());
+    currentCam=std::shared_ptr<KeyFrameDisplay>(new KeyFrameDisplay());
+
+    subDraw=messenger.subscribe("qviz/gl_draw",[this](GSLAM::Svar status){
+          this->draw();
+    });
+
+    pubUpdateGL=messenger.advertise<bool>("qviz/gl_update");
+    messenger.publish("qviz/gl_radius",10.);
 }
 
 WarperGSLAM::~WarperGSLAM(){
@@ -70,6 +77,7 @@ WarperGSLAM::~WarperGSLAM(){
 void WarperGSLAM::publishGraph(const std::map<long,Eigen::Vector2i> &connectivity)
 {
     if(!setting_render_display3D) return;
+
 
     model3DMutex.lock();
     connections.resize(connectivity.size()/2);
@@ -109,6 +117,8 @@ void WarperGSLAM::publishGraph(const std::map<long,Eigen::Vector2i> &connectivit
 
     connections.resize(runningID);
     model3DMutex.unlock();
+
+    pubUpdateGL.publish(true);
 }
 
 void WarperGSLAM::publishKeyframes(std::vector<FrameHessian*> &frames, bool final, CalibHessian* HCalib)
@@ -120,7 +130,7 @@ void WarperGSLAM::publishKeyframes(std::vector<FrameHessian*> &frames, bool fina
     {
         if(keyframesByKFID.find(fh->frameID) == keyframesByKFID.end())
         {
-            SPtr<KeyFrameDisplay> kfd = SPtr<KeyFrameDisplay>(new KeyFrameDisplay());
+            std::shared_ptr<KeyFrameDisplay> kfd = std::shared_ptr<KeyFrameDisplay>(new KeyFrameDisplay());
             kfd->setFromKF(fh,HCalib);
             keyframesByKFID[fh->frameID] = kfd;
             keyframes.push_back(kfd);
@@ -128,6 +138,8 @@ void WarperGSLAM::publishKeyframes(std::vector<FrameHessian*> &frames, bool fina
         else
             keyframesByKFID[fh->frameID]->setFromKF(fh, HCalib);
     }
+
+    pubUpdateGL.publish(true);
 }
 
 void WarperGSLAM::publishCamPose(FrameShell* frame, CalibHessian* HCalib)
@@ -144,11 +156,11 @@ void WarperGSLAM::pushLiveFrame(FrameHessian* image)
 {
     if(!setting_render_displayVideo) return;
     GSLAM::WriteMutex lock(mutexImage);
-    if(video.empty()) video=GSLAM::GImage(w,h,GSLAM::GImageType<u_char,3>::Type);
+    if(video.empty()) video=GSLAM::GImage(h,w,GSLAM::GImageType<u_char,3>::Type);
     for(int i=0;i<w*h;i++)
-        video.at<pi::Point3ub>(i).x=
-                video.at<pi::Point3ub>(i).y=
-                video.at<pi::Point3ub>(i).z=
+        video.at<GSLAM::Point3ub>(i).x=
+                video.at<GSLAM::Point3ub>(i).y=
+                video.at<GSLAM::Point3ub>(i).z=
                 image->dI[i][0]*0.8 > 255.0f ? 255.0 : image->dI[i][0]*0.8;
 
 
@@ -170,12 +182,13 @@ void WarperGSLAM::join(){
 }
 
 void WarperGSLAM::reset(){
+    GSLAM::WriteMutex lk3d(model3DMutex);
 
     keyframes.clear();
     keyframesByKFID.clear();
     connections.clear();
     allFramePoses.clear();
-    currentCam=SPtr<KeyFrameDisplay>(new KeyFrameDisplay());
+    currentCam=std::shared_ptr<KeyFrameDisplay>(new KeyFrameDisplay());
 }
 
 void WarperGSLAM::drawConstraints()
@@ -263,12 +276,12 @@ void WarperGSLAM::draw()
 {
     if(setting_render_display3D)
     {
-        glDisable(GL_LIGHTING);
         // Activate efficiently by object
         GSLAM::WriteMutex lk3d(model3DMutex);
+        glDisable(GL_LIGHTING);
         //pangolin::glDrawColouredCube();
         int refreshed=0;
-        for(SPtr<KeyFrameDisplay> fh : keyframes)
+        for(std::shared_ptr<KeyFrameDisplay> fh : keyframes)
         {
             float blue[3] = {0,0,1};
             if(this->settings_showKFCameras)
@@ -284,42 +297,42 @@ void WarperGSLAM::draw()
         drawConstraints();
     }
 
-    if(!video.empty()&&video.type()==GSLAM::GImageType<unsigned char,3>::Type)
-    {
-        GSLAM::WriteMutex lock(mutexImage);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+//    if(!video.empty()&&video.type()==GSLAM::GImageType<unsigned char,3>::Type)
+//    {
+//        GSLAM::WriteMutex lock(mutexImage);
+//        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-        int updownSwap = 1;
-        u_char *buf = video.data;
+//        int updownSwap = 1;
+//        u_char *buf = video.data;
 
-        // FIXME: up/down swap
-        if( updownSwap ) {
-            int w, h, c, lw;
-            u_char *p1, *p2;
+//        // FIXME: up/down swap
+//        if( updownSwap ) {
+//            int w, h, c, lw;
+//            u_char *p1, *p2;
 
-            w = video.cols;
-            h = video.rows;
-            c = video.channels();
-            lw = w*c;
+//            w = video.cols;
+//            h = video.rows;
+//            c = video.channels();
+//            lw = w*c;
 
-            buf = new u_char[w*h*c];
+//            buf = new u_char[w*h*c];
 
-            p1 = video.data;
-            p2 = buf + (h-1)*lw;
+//            p1 = video.data;
+//            p2 = buf + (h-1)*lw;
 
-            for(int j=0; j<h; j++) {
-                memcpy(p2, p1, sizeof(char)*lw);
+//            for(int j=0; j<h; j++) {
+//                memcpy(p2, p1, sizeof(char)*lw);
 
-                p1 += lw;
-                p2 -= lw;
-            }
-        }
+//                p1 += lw;
+//                p2 -= lw;
+//            }
+//        }
 
-        glDrawPixels(video.cols, video.rows,
-                     GL_BGR, GL_UNSIGNED_BYTE,
-                     buf);
+//        glDrawPixels(video.cols, video.rows,
+//                     GL_BGR, GL_UNSIGNED_BYTE,
+//                     buf);
 
-        if( updownSwap ) delete [] buf;
-        //        glViewport(0,0,win3d->width(),win3d->height());
-    }
+//        if( updownSwap ) delete [] buf;
+//        //        glViewport(0,0,win3d->width(),win3d->height());
+//    }
 }

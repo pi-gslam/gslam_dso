@@ -1,6 +1,7 @@
 #ifndef DSO_H
 #define DSO_H
 #include <iostream>
+#include <Eigen/Dense>
 #include <GSLAM/core/GSLAM.h>
 
 namespace dso
@@ -15,10 +16,10 @@ class ImageFolderReader;
 namespace GSLAM {
 
 
-class DSO: public SLAM
+class DSO
 {
 public:
-    DSO();
+    DSO(Svar config);
     virtual ~DSO();
 
     virtual std::string type()const{return "DSO";}
@@ -32,12 +33,14 @@ public:
 
     virtual bool isDrawable()const{return true;}
 
-    SPtr<dso::FullSystem>   system;
-    SPtr<WarperGSLAM>       warper;
+    std::shared_ptr<dso::FullSystem>   system;
+    std::shared_ptr<WarperGSLAM>       warper;
 
-    SPtr<ImageFolderReader> reader;
+    std::shared_ptr<ImageFolderReader> reader;
 
     bool                    shouldUndistort;
+    Subscriber subDataset;
+    Publisher  pubMap,pubFrame;
 };
 
 }
