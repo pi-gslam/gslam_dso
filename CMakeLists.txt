@@ -9,4 +9,4 @@ pi_report_target()
 
 INCLUDE_DIRECTORIES(src)
 
-pi_install(TARGETS gslam_optimizerPBA LIB_DESTINATION lib)
+pi_install(TARGETS gslam_dso LIB_DESTINATION lib)
